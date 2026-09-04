@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Reflex-Duell: Block &amp; Konter</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; touch-action: none; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: #05050a; overflow: hidden;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: #f0f0f5;
+  }
+  #gameCanvas {
+    display: block; width: 100%; height: 100%; background: radial-gradient(ellipse at center, #14141f 0%, #06060a 80%);
+  }
+
+  /* ---------- HUD ---------- */
+  #hud {
+    position: fixed; top: 0; left: 0; width: 100%; padding: 14px 16px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    pointer-events: none; z-index: 10;
+  }
+  .hud-block { display: flex; flex-direction: column; gap: 6px; }
+  #score {
+    font-size: 22px; font-weight: 700; letter-spacing: 1px;
+    text-shadow: 0 0 8px rgba(255,255,255,0.4);
+  }
+  #comboWrap { display:flex; align-items:center; gap:6px; }
+  #combo {
+    font-size: 15px; font-weight: 600; color: #ffd45c;
+    text-shadow: 0 0 10px rgba(255,212,92,0.7);
+    transition: transform 0.12s ease;
+  }
+  #combo.pulse { transform: scale(1.35); }
+  #multiplier {
+    font-size: 13px; color: #9ad1ff; opacity: 0.9;
+  }
+
+  .life-bar-wrap {
+    width: 160px; height: 16px; background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; overflow: hidden;
+    box-shadow: 0 0 10px rgba(0,0,0,0.5) inset;
+  }
+  #lifeFill {
+    height: 100%; width: 100%;
+    background: linear-gradient(90deg, #ff4d5e, #ff8a5c);
+    transition: width 0.25s ease, background 0.25s ease;
+  }
+  #lifeLabel { font-size: 11px; opacity: 0.7; margin-top: 2px; text-align:right; }
+
+  #topBanner {
+    position: fixed; top: 90px; left: 50%; transform: translateX(-50%);
+    font-size: 26px; font-weight: 800; letter-spacing: 2px;
+    opacity: 0; pointer-events: none; z-index: 20;
+    text-shadow: 0 0 14px currentColor;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+  }
+  #topBanner.show { opacity: 1; }
+
+  /* ---------- Overlays ---------- */
+  .overlay {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    background: rgba(5,5,10,0.88); z-index: 50; gap: 18px; padding: 24px;
+  }
+  .hidden { display: none !important; }
+  .overlay h1 { font-size: 34px; margin: 0; letter-spacing: 1px; }
+  .overlay p { margin: 0; opacity: 0.75; max-width: 380px; line-height: 1.5; font-size: 14px; }
+  .btn {
+    pointer-events: all; cursor: pointer; border: none; border-radius: 10px;
+    padding: 14px 36px; font-size: 17px; font-weight: 700; letter-spacing: 0.5px;
+    background: linear-gradient(180deg, #4fd1ff, #1c8fd6); color: #04121a;
+    box-shadow: 0 4px 0 #0d5a86, 0 0 20px rgba(79,209,255,0.4);
+    transition: transform 0.08s ease;
+  }
+  .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #0d5a86; }
+
+  .legend {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px;
+    font-size: 12px; opacity: 0.85; text-align: left; margin-top: 6px;
+  }
+  .legend span.tag { font-weight: 700; margin-right: 6px; }
+  .tag.melee { color: #cfd8ff; }
+  .tag.fire { color: #ff6b4a; }
+  .tag.lightning { color: #ffe14a; }
+  .tag.shadow { color: #b674ff; }
+
+  #finalScore { font-size: 48px; font-weight: 900; color: #ffd45c; text-shadow: 0 0 20px rgba(255,212,92,0.6); }
+
+  #instructions {
+    position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; opacity: 0.4; z-index: 5; text-align: center; width: 90%;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="hud">
+  <div class="hud-block">
+    <div id="score">SCORE 0</div>
+    <div id="comboWrap"><div id="combo">KOMBO 0</div><div id="multiplier">x1</div></div>
+  </div>
+  <div class="hud-block" style="align-items:flex-end;">
+    <div class="life-bar-wrap"><div id="lifeFill"></div></div>
+    <div id="lifeLabel">LEBEN 100</div>
+  </div>
+</div>
+
+<div id="topBanner"></div>
+
+<div id="instructions">Pfeiltasten/WASD zum Blocken &middot; Pfeil-runter/S = Eis &middot; Doppelklick = Erde &middot; Halten (Leertaste) = Licht</div>
+
+<div id="startOverlay" class="overlay">
+  <h1>⚔️ REFLEX-DUELL</h1>
+  <p>Angriffe kommen aus den vier Ecken auf die Mitte zu. Wische (oder nutze Tasten) in die passende Richtung, um Nahkampf-Angriffe zu blocken. Magie erfordert den richtigen Gegenzauber!</p>
+  <div class="legend">
+    <div><span class="tag melee">NAHKAMPF</span>Swipe / Pfeiltasten in Angriffsrichtung</div>
+    <div><span class="tag fire">FEUER</span>Eis-Konter: Swipe/Taste nach UNTEN</div>
+    <div><span class="tag lightning">BLITZ</span>Erd-Konter: Doppeltippen</div>
+    <div><span class="tag shadow">SCHATTEN</span>Licht-Konter: Halten (gedrückt halten)</div>
+  </div>
+  <button class="btn" id="startBtn">SPIEL STARTEN</button>
+</div>
+
+<div id="gameOverOverlay" class="overlay hidden">
+  <h1>GAME OVER</h1>
+  <div id="finalScore">0</div>
+  <p>Beste Kombo: <span id="finalCombo">0</span></p>
+  <button class="btn" id="replayBtn">NOCHMAL SPIELEN</button>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // =========================================================================
+  // CANVAS / RESIZE
+  // =========================================================================
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  let W, H, CX, CY;
+
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    CX = W / 2;
+    CY = H / 2;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // =========================================================================
+  // CONSTANTS: attack directions & magic types (modular registries)
+  // =========================================================================
+  const DIRS = {
+    UP_LEFT:    { key: 'UP_LEFT',    dx: -1, dy: -1, label: 'O-L' },
+    UP_RIGHT:   { key: 'UP_RIGHT',   dx:  1, dy: -1, label: 'O-R' },
+    DOWN_LEFT:  { key: 'DOWN_LEFT',  dx: -1, dy:  1, label: 'U-L' },
+    DOWN_RIGHT: { key: 'DOWN_RIGHT', dx:  1, dy:  1, label: 'U-R' },
+  };
+  const DIR_LIST = Object.values(DIRS);
+
+  // Magic type registry -> defines required counter gesture, color, name
+  const MAGIC_TYPES = {
+    FIRE:      { key: 'FIRE',      color: '#ff5a3c', glow: 'rgba(255,90,60,0.75)',  name: 'FEUER',    counter: 'ICE',   counterName: 'Eis-Konter (Swipe runter)' },
+    LIGHTNING: { key: 'LIGHTNING', color: '#ffe14a', glow: 'rgba(255,225,74,0.75)', name: 'BLITZ',    counter: 'EARTH', counterName: 'Erd-Konter (Doppeltipp)' },
+    SHADOW:    { key: 'SHADOW',    color: '#b674ff', glow: 'rgba(182,116,255,0.75)',name: 'SCHATTEN', counter: 'LIGHT', counterName: 'Licht-Konter (Halten)' },
+  };
+  const MAGIC_LIST = Object.values(MAGIC_TYPES);
+  const GESTURES = { SWIPE_UP: 'SWIPE_UP', SWIPE_DOWN: 'SWIPE_DOWN', SWIPE_LEFT: 'SWIPE_LEFT', SWIPE_RIGHT: 'SWIPE_RIGHT', DOUBLE_TAP: 'DOUBLE_TAP', HOLD: 'HOLD' };
+
+  // =========================================================================
+  // GAME STATE
+  // =========================================================================
+  let state = 'MENU'; // MENU | PLAYING | GAMEOVER
+  let score = 0;
+  let combo = 0;
+  let bestCombo = 0;
+  let multiplier = 1;
+  let life = 100;
+  const MAX_LIFE = 100;
+  let timeScale = 1;       // for hit-stop slow-mo
+  let hitStopTimer = 0;
+  let screenShake = 0;
+  let lastFrameTime = 0;
+  let spawnTimer = 0;
+  let spawnInterval = 1800; // ms, decreases with difficulty
+  let elapsedPlayMs = 0;
+  let holdActive = false;
+  let holdStartTime = 0;
+
+  const attacks = [];     // active incoming attacks
+  const particles = [];   // particle fx
+  const floatingTexts = [];
+
+  const ARRIVE_MS = 1500;      // base travel time (scaled by difficulty)
+  const PERFECT_WINDOW = 140;  // ms around arrival counted as "perfect"
+  const GOOD_WINDOW = 340;     // ms window counted as a normal successful block
+  const HIT_RADIUS = 46;       // radius around center considered "arrived"
+
+  // =========================================================================
+  // UI ELEMENTS
+  // =========================================================================
+  const scoreEl = document.getElementById('score');
+  const comboEl = document.getElementById('combo');
+  const multEl = document.getElementById('multiplier');
+  const lifeFillEl = document.getElementById('lifeFill');
+  const lifeLabelEl = document.getElementById('lifeLabel');
+  const bannerEl = document.getElementById('topBanner');
+  const startOverlay = document.getElementById('startOverlay');
+  const gameOverOverlay = document.getElementById('gameOverOverlay');
+  const finalScoreEl = document.getElementById('finalScore');
+  const finalComboEl = document.getElementById('finalCombo');
+
+  function updateHUD() {
+    scoreEl.textContent = 'SCORE ' + Math.floor(score);
+    comboEl.textContent = 'KOMBO ' + combo;
+    multEl.textContent = 'x' + multiplier.toFixed(1).replace('.0', '');
+    const pct = Math.max(0, life / MAX_LIFE) * 100;
+    lifeFillEl.style.width = pct + '%';
+    lifeLabelEl.textContent = 'LEBEN ' + Math.max(0, Math.floor(life));
+    if (pct < 30) {
+      lifeFillEl.style.background = 'linear-gradient(90deg, #ff2222, #ff5c5c)';
+    } else {
+      lifeFillEl.style.background = 'linear-gradient(90deg, #ff4d5e, #ff8a5c)';
+    }
+  }
+
+  let bannerTimeout = null;
+  function showBanner(text, color) {
+    bannerEl.textContent = text;
+    bannerEl.style.color = color || '#fff';
+    bannerEl.classList.add('show');
+    clearTimeout(bannerTimeout);
+    bannerTimeout = setTimeout(() => bannerEl.classList.remove('show'), 550);
+  }
+
+  function pulseCombo() {
+    comboEl.classList.remove('pulse');
+    void comboEl.offsetWidth;
+    comboEl.classList.add('pulse');
+  }
+
+  // =========================================================================
+  // ATTACK FACTORY (modular: new types can be added by extending this)
+  // =========================================================================
+  let attackIdCounter = 0;
+
+  function spawnAttack() {
+    const isMagic = Math.random() < 0.34;
+    const dir = DIR_LIST[Math.floor(Math.random() * DIR_LIST.length)];
+    const travelMs = ARRIVE_MS * difficultySpeedFactor();
+
+    if (isMagic) {
+      const magic = MAGIC_LIST[Math.floor(Math.random() * MAGIC_LIST.length)];
+      attacks.push({
+        id: attackIdCounter++,
+        type: 'MAGIC',
+        magic: magic,
+        dir: dir,
+        spawnTime: performance.now(),
+        travelMs: travelMs,
+        resolved: false,
+        holdSatisfiedMs: 0,
+      });
+    } else {
+      attacks.push({
+        id: attackIdCounter++,
+        type: 'MELEE',
+        dir: dir,
+        spawnTime: performance.now(),
+        travelMs: travelMs,
+        resolved: false,
+      });
+    }
+  }
+
+  function difficultySpeedFactor() {
+    // gets slightly faster the longer you survive, floor at 0.55x duration
+    const f = 1 - Math.min(0.45, elapsedPlayMs / 90000);
+    return f;
+  }
+
+  // =========================================================================
+  // PARTICLES
+  // =========================================================================
+  function spawnSpark(x, y, color, count, speed) {
+    for (let i = 0; i < count; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const spd = (0.5 + Math.random()) * (speed || 4);
+      particles.push({
+        x, y,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd,
+        life: 1,
+        decay: 0.02 + Math.random() * 0.03,
+        size: 2 + Math.random() * 3,
+        color: color,
+        type: 'spark',
+      });
+    }
+  }
+
+  function spawnShard(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const spd = 1 + Math.random() * 3;
+      particles.push({
+        x, y,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd,
+        life: 1,
+        decay: 0.015 + Math.random() * 0.02,
+        size: 3 + Math.random() * 5,
+        color: color,
+        type: 'shard',
+        rot: Math.random() * Math.PI,
+        vrot: (Math.random() - 0.5) * 0.3,
+      });
+    }
+  }
+
+  function spawnFloatText(x, y, text, color) {
+    floatingTexts.push({ x, y, text, color, life: 1, vy: -1.1 });
+  }
+
+  function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 0.02 * dt; // slight gravity
+      p.life -= p.decay * dt;
+      if (p.rot !== undefined) p.rot += p.vrot * dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+    for (let i = floatingTexts.length - 1; i >= 0; i--) {
+      const f = floatingTexts[i];
+      f.y += f.vy * dt;
+      f.life -= 0.018 * dt;
+      if (f.life <= 0) floatingTexts.splice(i, 1);
+    }
+  }
+
+  function drawParticles() {
+    for (const p of particles) {
+      ctx.globalAlpha = Math.max(0, p.life);
+      if (p.type === 'spark') {
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (p.type === 'shard') {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.moveTo(0, -p.size);
+        ctx.lineTo(p.size * 0.6, p.size * 0.6);
+        ctx.lineTo(-p.size * 0.6, p.size * 0.6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+    ctx.globalAlpha = 1;
+    for (const f of floatingTexts) {
+      ctx.globalAlpha = Math.max(0, f.life);
+      ctx.fillStyle = f.color;
+      ctx.font = 'bold 20px Segoe UI, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(f.text, f.x, f.y);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // =========================================================================
+  // INPUT: keyboard + touch gestures -> unified "action" resolution
+  // =========================================================================
+  // An action is one of: DIRS.* (melee block) or GESTURES.* (magic counter)
+
+  function handleAction(action) {
+    if (state !== 'PLAYING') return;
+    resolveNearestAttack(action);
+  }
+
+  function findTargetAttack() {
+    // pick the attack nearest to arrival (soonest to resolve) that's unresolved
+    let best = null;
+    let bestT = Infinity;
+    const now = performance.now();
+    for (const a of attacks) {
+      if (a.resolved) continue;
+      const t = a.spawnTime + a.travelMs - now; // ms remaining until arrival
+      if (Math.abs(t) < bestT) {
+        bestT = Math.abs(t);
+        best = a;
+      }
+    }
+    return best;
+  }
+
+  function resolveNearestAttack(action) {
+    const atk = findTargetAttack();
+    if (!atk) return;
+
+    const now = performance.now();
+    const arrivalTime = atk.spawnTime + atk.travelMs;
+    const delta = now - arrivalTime; // negative = early, positive = late
+    const withinWindow = Math.abs(delta) <= GOOD_WINDOW;
+    if (!withinWindow) return; // action doesn't correspond to any close attack
+
+    if (atk.type === 'MELEE') {
+      const correctDir = action === atk.dir.key;
+      if (correctDir) {
+        const isPerfect = Math.abs(delta) <= PERFECT_WINDOW && delta >= -PERFECT_WINDOW * 0.3;
+        succeedBlock(atk, isPerfect);
+      } else {
+        failBlock(atk, 'FALSCHE RICHTUNG');
+      }
+    } else {
+      // MAGIC: action must be the correct gesture (handled by caller passing GESTURE key)
+      const requiredCounter = atk.magic.counter;
+      const gestureMatches = GESTURE_TO_COUNTER[action] === requiredCounter;
+      if (gestureMatches) {
+        const isPerfect = Math.abs(delta) <= PERFECT_WINDOW && delta >= -PERFECT_WINDOW * 0.3;
+        succeedBlock(atk, isPerfect, true);
+      } else {
+        failBlock(atk, 'FALSCHER KONTER', true);
+      }
+    }
+  }
+
+  const GESTURE_TO_COUNTER = {
+    SWIPE_DOWN: 'ICE',
+    DOUBLE_TAP: 'EARTH',
+    HOLD: 'LIGHT',
+  };
+
+  function succeedBlock(atk, isPerfect, isMagic) {
+    atk.resolved = true;
+    combo++;
+    bestCombo = Math.max(bestCombo, combo);
+    multiplier = 1 + Math.floor(combo / 5) * 0.5;
+    const basePoints = isMagic ? 150 : 100;
+    const points = Math.floor(basePoints * multiplier * (isPerfect ? 1.75 : 1));
+    score += points;
+
+    const color = isMagic ? atk.magic.color : '#7fe8ff';
+    spawnSpark(CX, CY, color, isPerfect ? 34 : 18, isPerfect ? 6 : 4);
+    if (isMagic && atk.magic.key === 'FIRE') {
+      spawnShard(CX, CY, '#bdf3ff', 16); // ice crystal shatter absorbing fire
+    }
+    spawnFloatText(CX, CY - 60, (isPerfect ? 'PERFECT! ' : 'BLOCK ') + '+' + points, isPerfect ? '#ffd45c' : color);
+
+    if (isPerfect) {
+      showBanner('PERFECT BLOCK!', '#ffd45c');
+      triggerHitStop(160);
+      triggerShake(6);
+    } else {
+      showBanner(isMagic ? atk.magic.counterName.toUpperCase() + ' ✓' : 'GEBLOCKT', color);
+      triggerShake(3);
+    }
+    pulseCombo();
+    updateHUD();
+  }
+
+  function failBlock(atk, reason, isMagic) {
+    atk.resolved = true;
+    combo = 0;
+    multiplier = 1;
+    const dmg = isMagic ? 18 : 12;
+    life -= dmg;
+    spawnSpark(CX, CY, '#ff3344', 20, 5);
+    spawnFloatText(CX, CY - 60, reason + ' -' + dmg, '#ff5555');
+    showBanner(reason, '#ff5555');
+    triggerShake(10);
+    updateHUD();
+    checkGameOver();
+  }
+
+  function missAttack(atk) {
+    // attack reached center and was never resolved -> damage + combo break
+    atk.resolved = true;
+    combo = 0;
+    multiplier = 1;
+    const dmg = atk.type === 'MAGIC' ? 20 : 14;
+    life -= dmg;
+    const color = atk.type === 'MAGIC' ? atk.magic.color : '#ff8888';
+    spawnSpark(CX, CY, color, 24, 5);
+    spawnFloatText(CX, CY - 60, 'VERPASST -' + dmg, '#ff5555');
+    showBanner('VERPASST!', '#ff5555');
+    triggerShake(12);
+    updateHUD();
+    checkGameOver();
+  }
+
+  function checkGameOver() {
+    if (life <= 0) {
+      life = 0;
+      updateHUD();
+      endGame();
+    }
+  }
+
+  function triggerHitStop(ms) {
+    hitStopTimer = ms;
+    timeScale = 0.15;
+  }
+
+  function triggerShake(amount) {
+    screenShake = Math.max(screenShake, amount);
+  }
+
+  // =========================================================================
+  // KEYBOARD INPUT
+  // =========================================================================
+  const KEY_TO_DIR = {
+    ArrowUp: null, // up alone is ambiguous; require diagonals or WASD combos below
+  };
+
+  // Map single keys to nearest diagonal quadrant blocks + gestures
+  const keyState = {};
+  window.addEventListener('keydown', (e) => {
+    if (keyState[e.code]) return; // ignore auto-repeat
+    keyState[e.code] = true;
+
+    if (e.code === 'Space') {
+      startHold();
+      e.preventDefault();
+      return;
+    }
+
+    const dirKey = keyToDirection(e.code);
+    if (dirKey) {
+      handleAction(dirKey);
+      return;
+    }
+    if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+      handleAction(GESTURES.SWIPE_DOWN);
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    keyState[e.code] = false;
+    if (e.code === 'Space') {
+      endHold();
+    }
+  });
+
+  function keyToDirection(code) {
+    switch (code) {
+      case 'Numpad7': return DIRS.UP_LEFT.key;
+      case 'Numpad9': return DIRS.UP_RIGHT.key;
+      case 'Numpad1': return DIRS.DOWN_LEFT.key;
+      case 'Numpad3': return DIRS.DOWN_RIGHT.key;
+      default: return null;
+    }
+  }
+
+  // Simpler combined-key diagonal detection for Arrow/WASD (press pairs quickly)
+  let lastArrowPress = { key: null, time: 0 };
+  const COMBO_WINDOW_MS = 220;
+  function registerDirectionalKey(vertical, horizontal) {
+    const now = performance.now();
+    if (lastArrowPress.key && now - lastArrowPress.time < COMBO_WINDOW_MS) {
+      const combo = resolveDiagonal(lastArrowPress.key, vertical || horizontal);
+      if (combo) {
+        handleAction(combo);
+        lastArrowPress = { key: null, time: 0 };
+        return;
+      }
+    }
+    lastArrowPress = { key: vertical || horizontal, time: now };
+  }
+
+  function resolveDiagonal(a, b) {
+    const set = [a, b].sort().join('+');
+    if (set === 'ArrowLeft+ArrowUp' || set === 'KeyA+KeyW') return DIRS.UP_LEFT.key;
+    if (set === 'ArrowRight+ArrowUp' || set === 'KeyD+KeyW') return DIRS.UP_RIGHT.key;
+    if (set === 'ArrowDown+ArrowLeft' || set === 'KeyA+KeyS') return DIRS.DOWN_LEFT.key;
+    if (set === 'ArrowDown+ArrowRight' || set === 'KeyD+KeyS') return DIRS.DOWN_RIGHT.key;
+    return null;
+  }
+
+  // Track currently-held arrow/WASD keys to detect diagonal combos properly
+  const heldMoveKeys = new Set();
+  window.addEventListener('keydown', (e) => {
+    const moveKeys = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyW','KeyA','KeyS','KeyD'];
+    if (!moveKeys.includes(e.code)) return;
+    heldMoveKeys.add(e.code);
+    evaluateHeldDiagonal();
+  });
+  window.addEventListener('keyup', (e) => {
+    heldMoveKeys.delete(e.code);
+  });
+
+  function evaluateHeldDiagonal() {
+    const up = heldMoveKeys.has('ArrowUp') || heldMoveKeys.has('KeyW');
+    const down = heldMoveKeys.has('ArrowDown') || heldMoveKeys.has('KeyS');
+    const left = heldMoveKeys.has('ArrowLeft') || heldMoveKeys.has('KeyA');
+    const right = heldMoveKeys.has('ArrowRight') || heldMoveKeys.has('KeyD');
+    if (up && left) handleAction(DIRS.UP_LEFT.key);
+    else if (up && right) handleAction(DIRS.UP_RIGHT.key);
+    else if (down && left) handleAction(DIRS.DOWN_LEFT.key);
+    else if (down && right) handleAction(DIRS.DOWN_RIGHT.key);
+  }
+
+  let holdTimer = null;
+  function startHold() {
+    if (holdActive) return;
+    holdActive = true;
+    holdStartTime = performance.now();
+  }
+  function endHold() {
+    if (!holdActive) return;
+    holdActive = false;
+    const heldMs = performance.now() - holdStartTime;
+    if (heldMs >= 220) {
+      handleAction(GESTURES.HOLD);
+    }
+  }
+
+  // =========================================================================
+  // TOUCH INPUT: swipe detection + double tap
+  // =========================================================================
+  let touchStart = null;
+  let lastTapTime = 0;
+  let touchHoldTimer = null;
+  let touchHoldFired = false;
+
+  canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length >= 2) {
+      handleAction(GESTURES.DOUBLE_TAP);
+      return;
+    }
+    const t = e.touches[0];
+    touchStart = { x: t.clientX, y: t.clientY, time: performance.now() };
+    touchHoldFired = false;
+    clearTimeout(touchHoldTimer);
+    touchHoldTimer = setTimeout(() => {
+      touchHoldFired = true;
+      handleAction(GESTURES.HOLD);
+    }, 260);
+  }, { passive: true });
+
+  canvas.addEventListener('touchend', (e) => {
+    clearTimeout(touchHoldTimer);
+    if (touchHoldFired) { touchStart = null; return; }
+    if (!touchStart) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStart.x;
+    const dy = t.clientY - touchStart.y;
+    const dist = Math.hypot(dx, dy);
+    const dt = performance.now() - touchStart.time;
+
+    if (dist < 12 && dt < 300) {
+      // tap - check for double tap
+      const now = performance.now();
+      if (now - lastTapTime < 320) {
+        handleAction(GESTURES.DOUBLE_TAP);
+        lastTapTime = 0;
+      } else {
+        lastTapTime = now;
+      }
+      touchStart = null;
+      return;
+    }
+
+    if (dist > 30) {
+      const absDx = Math.abs(dx), absDy = Math.abs(dy);
+      // Determine swipe direction: diagonal for melee, cardinal for magic counters
+      if (absDx > absDy * 2.2) {
+        // mostly horizontal - not a defined melee dir alone; ignore
+      } else if (absDy > absDx * 2.2) {
+        handleAction(dy > 0 ? GESTURES.SWIPE_DOWN : GESTURES.SWIPE_UP);
+      } else {
+        // diagonal swipe
+        if (dx < 0 && dy < 0) handleAction(DIRS.UP_LEFT.key);
+        else if (dx > 0 && dy < 0) handleAction(DIRS.UP_RIGHT.key);
+        else if (dx < 0 && dy > 0) handleAction(DIRS.DOWN_LEFT.key);
+        else if (dx > 0 && dy > 0) handleAction(DIRS.DOWN_RIGHT.key);
+      }
+    }
+    touchStart = null;
+  }, { passive: true });
+
+  canvas.addEventListener('touchmove', (e) => {
+    if (touchStart && !touchHoldFired) {
+      const t = e.touches[0];
+      const dist = Math.hypot(t.clientX - touchStart.x, t.clientY - touchStart.y);
+      if (dist > 20) { clearTimeout(touchHoldTimer); }
+    }
+  }, { passive: true });
+
+  // =========================================================================
+  // RENDERING
+  // =========================================================================
+  function anchorPos(dir) {
+    const margin = Math.min(W, H) * 0.42 + 60;
+    return { x: CX + dir.dx * margin, y: CY + dir.dy * margin };
+  }
+
+  function attackProgress(atk, now) {
+    const t = (now - atk.spawnTime) / atk.travelMs;
+    return Math.max(0, Math.min(1.15, t));
+  }
+
+  function drawCenterZone() {
+    const pulse = 1 + Math.sin(performance.now() / 300) * 0.04;
+    const r = 40 * pulse;
+    const grad = ctx.createRadialGradient(CX, CY, 0, CX, CY, r * 2.2);
+    grad.addColorStop(0, 'rgba(120,200,255,0.35)');
+    grad.addColorStop(1, 'rgba(120,200,255,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(CX, CY, r * 2.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(CX, CY, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    if (holdActive) {
+      const heldMs = performance.now() - holdStartTime;
+      const holdR = r + 10 + Math.min(30, heldMs / 15);
+      ctx.strokeStyle = 'rgba(255,255,200,0.8)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(CX, CY, holdR, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  function drawMeleeAttack(atk, now) {
+    const start = anchorPos(atk.dir);
+    const t = attackProgress(atk, now);
+    const x = start.x + (CX - start.x) * t;
+    const y = start.y + (CY - start.y) * t;
+
+    // telegraph line from origin
+    ctx.strokeStyle = 'rgba(207,216,255,0.25)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 6]);
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(CX, CY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // arrow/blade shape
+    ctx.save();
+    ctx.translate(x, y);
+    const angle = Math.atan2(CY - start.y, CX - start.x);
+    ctx.rotate(angle);
+    const size = 16 + t * 4;
+    ctx.fillStyle = '#cfd8ff';
+    ctx.shadowColor = '#cfd8ff';
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.moveTo(size, 0);
+    ctx.lineTo(-size * 0.6, size * 0.5);
+    ctx.lineTo(-size * 0.2, 0);
+    ctx.lineTo(-size * 0.6, -size * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // direction label near origin
+    ctx.fillStyle = 'rgba(207,216,255,0.9)';
+    ctx.font = 'bold 14px Segoe UI, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(atk.dir.label, start.x, start.y - 20);
+  }
+
+  function drawMagicAttack(atk, now) {
+    const start = anchorPos(atk.dir);
+    const t = attackProgress(atk, now);
+    const x = start.x + (CX - start.x) * t;
+    const y = start.y + (CY - start.y) * t;
+    const m = atk.magic;
+
+    ctx.strokeStyle = m.glow;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 8]);
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(CX, CY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const radius = 18 + Math.sin(now / 90) * 3;
+    ctx.save();
+    ctx.shadowColor = m.glow;
+    ctx.shadowBlur = 25;
+    ctx.fillStyle = m.color;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // inner core
+    ctx.globalAlpha = 0.6;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(x, y, radius * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = m.color;
+    ctx.font = 'bold 15px Segoe UI, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(m.name, start.x, start.y - 26);
+    ctx.font = '11px Segoe UI, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.fillText(m.counterName, start.x, start.y - 10);
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    ctx.save();
+    if (screenShake > 0.1) {
+      const sx = (Math.random() - 0.5) * screenShake;
+      const sy = (Math.random() - 0.5) * screenShake;
+      ctx.translate(sx, sy);
+    }
+
+    // faint grid backdrop
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    ctx.lineWidth = 1;
+    for (let gx = 0; gx < W; gx += 40) {
+      ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
+    }
+    for (let gy = 0; gy < H; gy += 40) {
+      ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke();
+    }
+
+    drawCenterZone();
+
+    const now = performance.now();
+    for (const atk of attacks) {
+      if (atk.resolved) continue;
+      if (atk.type === 'MELEE') drawMeleeAttack(atk, now);
+      else drawMagicAttack(atk, now);
+    }
+
+    drawParticles();
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // MAIN LOOP
+  // =========================================================================
+  function update(dtRaw) {
+    // hit-stop handling (real time, unaffected by timeScale)
+    if (hitStopTimer > 0) {
+      hitStopTimer -= dtRaw;
+      if (hitStopTimer <= 0) { timeScale = 1; hitStopTimer = 0; }
+    }
+    const dt = dtRaw * timeScale;
+
+    if (screenShake > 0) {
+      screenShake -= dtRaw * 0.05;
+      if (screenShake < 0) screenShake = 0;
+    }
+
+    updateParticles(dt / 16.67);
+
+    if (state !== 'PLAYING') return;
+
+    elapsedPlayMs += dt;
+    spawnTimer += dt;
+    const currentInterval = spawnInterval * difficultySpeedFactor();
+    if (spawnTimer >= currentInterval) {
+      spawnTimer = 0;
+      spawnAttack();
+    }
+
+    const now = performance.now();
+    for (let i = attacks.length - 1; i >= 0; i--) {
+      const atk = attacks[i];
+      if (atk.resolved) {
+        if (now - (atk.spawnTime + atk.travelMs) > 600) attacks.splice(i, 1);
+        continue;
+      }
+      const t = attackProgress(atk, now);
+      if (t >= 1 && now - (atk.spawnTime + atk.travelMs) > GOOD_WINDOW) {
+        missAttack(atk);
+      }
+    }
+  }
+
+  function loop(ts) {
+    if (!lastFrameTime) lastFrameTime = ts;
+    const dtRaw = Math.min(48, ts - lastFrameTime);
+    lastFrameTime = ts;
+
+    update(dtRaw);
+    draw();
+
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  // =========================================================================
+  // GAME LIFECYCLE
+  // =========================================================================
+  function startGame() {
+    state = 'PLAYING';
+    score = 0;
+    combo = 0;
+    bestCombo = 0;
+    multiplier = 1;
+    life = MAX_LIFE;
+    spawnTimer = 0;
+    elapsedPlayMs = 0;
+    attacks.length = 0;
+    particles.length = 0;
+    floatingTexts.length = 0;
+    startOverlay.classList.add('hidden');
+    gameOverOverlay.classList.add('hidden');
+    updateHUD();
+  }
+
+  function endGame() {
+    state = 'GAMEOVER';
+    finalScoreEl.textContent = Math.floor(score);
+    finalComboEl.textContent = bestCombo;
+    gameOverOverlay.classList.remove('hidden');
+  }
+
+  document.getElementById('startBtn').addEventListener('click', startGame);
+  document.getElementById('replayBtn').addEventListener('click', startGame);
+
+  updateHUD();
+})();
+</script>
+</body>
+</html>
